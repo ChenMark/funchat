@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: funchat123
+      MYSQL_DATABASE: funchat
+      MYSQL_USER: funchat
+      MYSQL_PASSWORD: funchat123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=funchat
+      - DB_PASSWORD=funchat123
+      - DB_NAME=funchat
+      - JWT_SECRET=${JWT_SECRET:-funchat-prod-secret}
+      - SMS_SECRET_ID=${SMS_SECRET_ID}
+      - SMS_SECRET_KEY=${SMS_SECRET_KEY}
+      - SMS_APP_ID=${SMS_APP_ID}
+      - SMS_SIGN_NAME=${SMS_SIGN_NAME}
+      - SMS_TEMPLATE_ID=${SMS_TEMPLATE_ID}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
