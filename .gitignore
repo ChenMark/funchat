@@ -1,0 +1,45 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+backend/bin/
+backend/tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Node
+node_modules/
+
+# Environment (contains secrets)
+backend/.env
+!backend/.env.example
+
+# Build
+*.apk
+*.ipa
+*.app
+
+# Logs
+*.log
+/tmp/
+
+# Database
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
