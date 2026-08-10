@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -19,9 +21,11 @@ type Config struct {
 
 // ServerConfig 服务配置
 type ServerConfig struct {
+	Environment  string
 	Port         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+	AllowedOrigins []string
 }
 
 // DatabaseConfig 数据库配置
@@ -73,9 +77,11 @@ func Load() (*Config, error) {
 
 	return &Config{
 		Server: ServerConfig{
+			Environment:  getEnv("APP_ENV", "development"),
 			Port:         getEnv("SERVER_PORT", "8080"),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
+			AllowedOrigins: splitCSV(getEnv("ALLOWED_ORIGINS", "")),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "127.0.0.1"),
@@ -109,7 +115,35 @@ func Load() (*Config, error) {
 			Bucket:    getEnv("COS_BUCKET", ""),
 			Region:    getEnv("COS_REGION", ""),
 		},
-	}, nil
+	}, validate()
+}
+
+func validate() error {
+	if getEnv("APP_ENV", "development") != "production" {
+		return nil
+	}
+	secret := os.Getenv("JWT_SECRET")
+	if len(secret) < 32 || secret == "funchat-dev-secret-change-in-production" || secret == "funchat-prod-secret" {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters in production")
+	}
+	if len(splitCSV(os.Getenv("ALLOWED_ORIGINS"))) == 0 {
+		return fmt.Errorf("ALLOWED_ORIGINS is required in production")
+	}
+	return nil
+}
+
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if origin := strings.TrimSpace(part); origin != "" {
+			result = append(result, origin)
+		}
+	}
+	return result
 }
 
 func getEnv(key, defaultVal string) string {

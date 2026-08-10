@@ -1,6 +1,6 @@
 # FunChat 后端服务
 
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 COPY backend/go.mod backend/go.sum ./

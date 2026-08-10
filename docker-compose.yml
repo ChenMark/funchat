@@ -31,7 +31,9 @@ services:
       - DB_USER=funchat
       - DB_PASSWORD=funchat123
       - DB_NAME=funchat
-      - JWT_SECRET=${JWT_SECRET:-funchat-prod-secret}
+      - APP_ENV=${APP_ENV:-development}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - SMS_SECRET_ID=${SMS_SECRET_ID}
       - SMS_SECRET_KEY=${SMS_SECRET_KEY}
       - SMS_APP_ID=${SMS_APP_ID}
