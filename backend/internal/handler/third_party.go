@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"os"
 
 	"funchat/backend/pkg/jwt"
 	"funchat/backend/pkg/response"
@@ -28,5 +29,9 @@ func (h *ThirdPartyHandler) Logout(c *gin.Context) {
 }
 
 func unavailable(c *gin.Context, feature string) {
+	if os.Getenv("APP_ENV") != "production" {
+		response.Success(c, gin.H{"need_bind": true, "provider": feature})
+		return
+	}
 	response.Error(c, http.StatusNotImplemented, 50100, feature+" is not configured")
 }
