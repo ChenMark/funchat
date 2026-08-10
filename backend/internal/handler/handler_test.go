@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"funchat/backend/config"
+	"funchat/backend/internal/model"
 	"funchat/backend/internal/repository"
 	"funchat/backend/pkg/jwt"
 
@@ -41,6 +42,8 @@ func setupTestRouter() *gin.Engine {
 	var repo *repository.Repo
 	if db != nil {
 		repo = repository.NewRepo(db)
+		_ = repo.DB.Create(&model.Friendship{UserID: "u_13800000001", FriendID: "u_13800000002", Status: 1}).Error
+		_ = repo.DB.Create(&model.Friendship{UserID: "u_13800000002", FriendID: "u_13800000001", Status: 1}).Error
 	}
 
 	authHandler := NewAuthHandler(jwtManager, repo, nil) // 测试用 nil smsClient

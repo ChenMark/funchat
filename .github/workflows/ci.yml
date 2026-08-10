@@ -41,4 +41,5 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
       - run: go test ./...
