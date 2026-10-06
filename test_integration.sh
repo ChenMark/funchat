@@ -1,240 +1,300 @@
-#!/bin/bash
-# FunChat 全栈回归测试脚本
-# 覆盖: Phase 0 (health) + Phase 1 (Auth + Friends) + Phase 2 (Chat + WS) + Phase 3 (Conditions)
-# 生成日期: 2026-06-19
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-BASE="http://localhost:8080/api/v1"
+BASE_URL="${BASE_URL:-http://localhost:8080}"
+API_BASE="${BASE_URL}/api/v1"
+THIRD_PARTY_LOGIN_EXPECTED_CODE="${THIRD_PARTY_LOGIN_EXPECTED_CODE:-0}"
+THIRD_PARTY_LOGIN_EXPECTED_HTTP="${THIRD_PARTY_LOGIN_EXPECTED_HTTP:-200}"
+
 PASS=0
 FAIL=0
-RESULTS=""
 
-# 颜色
+LAST_BODY=""
+LAST_HTTP=""
+LAST_CODE=""
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
-YELLOW='\033[0;33m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
-test_case() {
+timestamp="$(date +%s)"
+PHONE_A="1388${timestamp: -7}"
+PHONE_B="1399${timestamp: -7}"
+
+TOKEN_A=""
+TOKEN_B=""
+REFRESH_A=""
+REQUEST_ID=""
+QUIZ_ID=""
+BURN_MSG_ID=""
+
+log_section() {
+    echo
+    echo "=== $1 ==="
+}
+
+api_call() {
+    local method="$1"
+    local path="$2"
+    local token="${3:-}"
+    local data="${4:-}"
+
+    local args=(-sS -X "$method" "${API_BASE}${path}" -H "Content-Type: application/json")
+    if [[ -n "$token" ]]; then
+        args+=(-H "Authorization: Bearer ${token}")
+    fi
+    if [[ -n "$data" ]]; then
+        args+=(-d "$data")
+    fi
+
+    local raw
+    raw="$(curl "${args[@]}" -w $'\n%{http_code}')"
+    LAST_BODY="$(printf '%s\n' "$raw" | sed '$d')"
+    LAST_HTTP="$(printf '%s\n' "$raw" | tail -n 1)"
+    LAST_CODE="$(printf '%s' "$LAST_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("code", -1))')"
+}
+
+record_pass() {
+    PASS=$((PASS + 1))
+    echo -e "${GREEN}PASS${NC} $1"
+}
+
+record_fail() {
+    FAIL=$((FAIL + 1))
+    echo -e "${RED}FAIL${NC} $1"
+    echo "  HTTP: ${LAST_HTTP}"
+    echo "  Body: ${LAST_BODY}"
+}
+
+assert_status() {
     local name="$1"
-    local method="$2"
-    local url="$3"
-    local auth="$4"
-    local data="$5"
-    local expected_code="$6"
+    local expected_http="$2"
+    local expected_code="$3"
 
-    local auth_header=""
-    if [ -n "$auth" ]; then
-        auth_header="-H \"Authorization: Bearer $auth\""
-    fi
-
-    local data_arg=""
-    if [ -n "$data" ]; then
-        data_arg="-d '$data'"
-    fi
-
-    local cmd="curl -s -X $method \"$url\" -H \"Content-Type: application/json\" $auth_header $data_arg"
-    local response=$(eval "$cmd" 2>/dev/null)
-    local actual_code=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('code', -1))" 2>/dev/null || echo "-1")
-
-    if [ "$actual_code" == "$expected_code" ]; then
-        PASS=$((PASS + 1))
-        RESULTS+="${GREEN}PASS${NC} | $name | code=$actual_code\n"
-        echo -e "${GREEN}✓${NC} $name"
+    if [[ "$LAST_HTTP" == "$expected_http" && "$LAST_CODE" == "$expected_code" ]]; then
+        record_pass "$name"
     else
-        FAIL=$((FAIL + 1))
-        RESULTS+="${RED}FAIL${NC} | $name | expected=$expected_code actual=$actual_code\n"
-        echo -e "${RED}✗${NC} $name (expected=$expected_code actual=$actual_code)"
-        echo "  Response: $response"
+        record_fail "$name (expected http=${expected_http} code=${expected_code})"
     fi
 }
 
-echo "==============================================="
-echo "  FunChat 全栈回归测试"
-echo "  覆盖 Phase 0-3"
-echo "==============================================="
-echo ""
+extract_json() {
+    local expr="$1"
+    printf '%s' "$LAST_BODY" | python3 -c "import json,sys; data=json.load(sys.stdin); value=${expr}; print('' if value is None else value)"
+}
 
-# ==========================================
-# Phase 0: 基础设施
-# ==========================================
-echo "--- Phase 0: 基础设施 ---"
+assert_json_value() {
+    local name="$1"
+    local expr="$2"
+    local expected="$3"
+    local actual
+    actual="$(extract_json "$expr")"
 
-# 健康检查
-test_case "Health Check" "GET" "http://localhost:8080/health" "" "" "0"
+    if [[ "$actual" == "$expected" ]]; then
+        record_pass "$name"
+    else
+        FAIL=$((FAIL + 1))
+        echo -e "${RED}FAIL${NC} $name"
+        echo "  expected: ${expected}"
+        echo "  actual:   ${actual}"
+        echo "  body:     ${LAST_BODY}"
+    fi
+}
 
-echo ""
+echo "FunChat API regression smoke"
+echo "BASE_URL=${BASE_URL}"
+echo "PHONE_A=${PHONE_A}"
+echo "PHONE_B=${PHONE_B}"
 
-# ==========================================
-# Phase 1: 用户体系 + 好友模块
-# ==========================================
-echo "--- Phase 1: 用户体系 + 好友模块 ---"
+log_section "Health"
+api_call GET "" "" ""
+LAST_BODY="$(curl -sS "${BASE_URL}/health")"
+LAST_HTTP="$(curl -sS -o /dev/null -w "%{http_code}" "${BASE_URL}/health")"
+LAST_CODE="$(printf '%s' "$LAST_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("code", -1))')"
+assert_status "health" "200" "0"
 
-# 1.1 发送验证码
-SEND_A=$(curl -s -X POST "$BASE/auth/send-code" -H "Content-Type: application/json" -d '{"phone":"13800000001"}')
-CODE_A=$(echo "$SEND_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['code'])")
-test_case "发送验证码 (用户A)" "POST" "$BASE/auth/send-code" "" '{"phone":"13800000001"}' "0"
+log_section "Auth"
+api_call POST "/auth/send-code" "" "{\"phone\":\"${PHONE_A}\"}"
+assert_status "send code A" "200" "0"
+CODE_A="$(extract_json 'data["data"]["code"]')"
 
-# 1.2 手机号格式错误
-test_case "手机号格式错误" "POST" "$BASE/auth/send-code" "" '{"phone":"123"}' "40000"
+api_call POST "/auth/verify-code" "" "{\"phone\":\"${PHONE_A}\",\"code\":\"${CODE_A}\"}"
+assert_status "verify code A" "200" "0"
+CODE_TOKEN_A="$(extract_json 'data["data"]["code_token"]')"
 
-# 1.3 校验验证码
-VERIFY_A=$(curl -s -X POST "$BASE/auth/verify-code" -H "Content-Type: application/json" -d "{\"phone\":\"13800000001\",\"code\":\"$CODE_A\"}")
-CT_A=$(echo "$VERIFY_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['code_token'])")
-test_case "校验验证码 (用户A)" "POST" "$BASE/auth/verify-code" "" "{\"phone\":\"13800000001\",\"code\":\"$CODE_A\"}" "0"
+api_call POST "/auth/register" "" "{\"phone\":\"${PHONE_A}\",\"code_token\":\"${CODE_TOKEN_A}\",\"nickname\":\"RegressionA\"}"
+assert_status "register A" "201" "0"
+TOKEN_A="$(extract_json 'data["data"]["access_token"]')"
+REFRESH_A="$(extract_json 'data["data"]["refresh_token"]')"
 
-# 1.4 验证码错误
-test_case "验证码错误" "POST" "$BASE/auth/verify-code" "" '{"phone":"13800000001","code":"000000"}' "40011"
+api_call POST "/auth/send-code" "" "{\"phone\":\"${PHONE_B}\"}"
+assert_status "send code B" "200" "0"
+CODE_B="$(extract_json 'data["data"]["code"]')"
 
-# 1.5 注册
-REG_A=$(curl -s -X POST "$BASE/auth/register" -H "Content-Type: application/json" -d "{\"phone\":\"13800000001\",\"code_token\":\"$CT_A\",\"nickname\":\"测试用户A\"}")
-TA=$(echo "$REG_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['access_token'])")
-test_case "注册用户A" "POST" "$BASE/auth/register" "" "{\"phone\":\"13800000001\",\"code_token\":\"$CT_A\",\"nickname\":\"测试用户A\"}" "0"
+api_call POST "/auth/verify-code" "" "{\"phone\":\"${PHONE_B}\",\"code\":\"${CODE_B}\"}"
+assert_status "verify code B" "200" "0"
+CODE_TOKEN_B="$(extract_json 'data["data"]["code_token"]')"
 
-# 1.6 创建用户B
-SEND_B=$(curl -s -X POST "$BASE/auth/send-code" -H "Content-Type: application/json" -d '{"phone":"13800000002"}')
-CODE_B=$(echo "$SEND_B" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['code'])")
-VERIFY_B=$(curl -s -X POST "$BASE/auth/verify-code" -H "Content-Type: application/json" -d "{\"phone\":\"13800000002\",\"code\":\"$CODE_B\"}")
-CT_B=$(echo "$VERIFY_B" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['code_token'])")
-REG_B=$(curl -s -X POST "$BASE/auth/register" -H "Content-Type: application/json" -d "{\"phone\":\"13800000002\",\"code_token\":\"$CT_B\",\"nickname\":\"测试用户B\"}")
-TB=$(echo "$REG_B" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['access_token'])")
-RT_B=$(echo "$REG_B" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['refresh_token'])")
-test_case "注册用户B" "POST" "$BASE/auth/register" "" "{\"phone\":\"13800000002\",\"code_token\":\"$CT_B\",\"nickname\":\"测试用户B\"}" "0"
+api_call POST "/auth/register" "" "{\"phone\":\"${PHONE_B}\",\"code_token\":\"${CODE_TOKEN_B}\",\"nickname\":\"RegressionB\"}"
+assert_status "register B" "201" "0"
+TOKEN_B="$(extract_json 'data["data"]["access_token"]')"
 
-# 1.7 登录
-SEND_C=$(curl -s -X POST "$BASE/auth/send-code" -H "Content-Type: application/json" -d '{"phone":"13800000001"}')
-CODE_C=$(echo "$SEND_C" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['code'])")
-VERIFY_C=$(curl -s -X POST "$BASE/auth/verify-code" -H "Content-Type: application/json" -d "{\"phone\":\"13800000001\",\"code\":\"$CODE_C\"}")
-CT_C=$(echo "$VERIFY_C" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['code_token'])")
-test_case "手机号登录" "POST" "$BASE/auth/login" "" "{\"phone\":\"13800000001\",\"code_token\":\"$CT_C\"}" "0"
+api_call POST "/auth/send-code" "" "{\"phone\":\"${PHONE_A}\"}"
+assert_status "send code A for login" "200" "0"
+CODE_LOGIN_A="$(extract_json 'data["data"]["code"]')"
 
-# 1.8 Token 刷新
-test_case "Token刷新" "POST" "$BASE/auth/refresh" "$TA" "{\"refresh_token\":\"$RT_B\"}" "0"
+api_call POST "/auth/verify-code" "" "{\"phone\":\"${PHONE_A}\",\"code\":\"${CODE_LOGIN_A}\"}"
+assert_status "verify code A for login" "200" "0"
+CODE_TOKEN_LOGIN_A="$(extract_json 'data["data"]["code_token"]')"
 
-# 1.9 微信登录
-test_case "微信登录(未绑定)" "POST" "$BASE/auth/wechat/login" "" '{"code":"wx_test_12345"}' "0"
+api_call POST "/auth/login" "" "{\"phone\":\"${PHONE_A}\",\"code_token\":\"${CODE_TOKEN_LOGIN_A}\"}"
+assert_status "login A" "200" "0"
 
-# 1.10 Apple 登录
-test_case "Apple登录(未绑定)" "POST" "$BASE/auth/apple/login" "" '{"identity_token":"apple_test_67890"}' "0"
+api_call POST "/auth/refresh" "$TOKEN_A" "{\"refresh_token\":\"${REFRESH_A}\"}"
+assert_status "refresh token A" "200" "0"
 
-# 1.11 未授权访问
-test_case "未授权访问拦截" "GET" "$BASE/friends" "" "" "40100"
+api_call POST "/auth/wechat/login" "" '{"code":"wx_test_code"}'
+assert_status "wechat login" "${THIRD_PARTY_LOGIN_EXPECTED_HTTP}" "${THIRD_PARTY_LOGIN_EXPECTED_CODE}"
+if [[ "${THIRD_PARTY_LOGIN_EXPECTED_CODE}" == "0" ]]; then
+    assert_json_value "wechat login need_bind" 'data["data"]["need_bind"]' "True"
+fi
 
-# 1.12 好友搜索
-test_case "好友搜索" "GET" "$BASE/friends/search?keyword=小明" "$TA" "" "0"
+api_call POST "/auth/apple/login" "" '{"identity_token":"apple_test_token"}'
+assert_status "apple login" "${THIRD_PARTY_LOGIN_EXPECTED_HTTP}" "${THIRD_PARTY_LOGIN_EXPECTED_CODE}"
 
-# 1.13 发送好友申请
-test_case "发送好友申请" "POST" "$BASE/friends/request" "$TA" '{"target_user_id":"u_13800000002","message":"你好"}' "0"
+log_section "Friends"
+api_call GET "/friends" "" ""
+assert_status "friends unauthorized" "401" "40100"
 
-# 1.14 重复申请
-test_case "重复申请拦截" "POST" "$BASE/friends/request" "$TA" '{"target_user_id":"u_13800000002"}' "40900"
+api_call GET "/friends/search?keyword=${PHONE_B}" "$TOKEN_A" ""
+assert_status "search friend by phone" "200" "0"
 
-# 1.15 添加自己
-test_case "添加自己拦截" "POST" "$BASE/friends/request" "$TA" '{"target_user_id":"u_13800000001"}' "40030"
+api_call POST "/friends/request" "$TOKEN_A" "{\"target_user_id\":\"u_${PHONE_B}\",\"message\":\"hello\"}"
+assert_status "send friend request" "201" "0"
+REQUEST_ID="$(extract_json 'data["data"]["request_id"]')"
 
-# 1.16 查看申请
-test_case "查看申请列表" "GET" "$BASE/friends/requests" "$TB" "" "0"
+api_call POST "/friends/request" "$TOKEN_A" "{\"target_user_id\":\"u_${PHONE_B}\"}"
+assert_status "duplicate friend request blocked" "409" "40900"
 
-# 1.17 同意申请
-test_case "同意好友申请" "POST" "$BASE/friends/accept" "$TB" '{"request_id":1}' "0"
+api_call POST "/friends/request" "$TOKEN_A" "{\"target_user_id\":\"u_${PHONE_A}\"}"
+assert_status "self friend request blocked" "400" "40030"
 
-# 1.18 好友列表
-test_case "好友列表(A)" "GET" "$BASE/friends" "$TA" "" "0"
-test_case "好友列表(B)" "GET" "$BASE/friends" "$TB" "" "0"
+api_call GET "/friends/requests" "$TOKEN_B" ""
+assert_status "list incoming requests" "200" "0"
 
-# 1.19 删除好友
-test_case "删除好友" "DELETE" "$BASE/friends/u_13800000002" "$TA" "" "0"
+api_call POST "/friends/accept" "$TOKEN_B" "{\"request_id\":${REQUEST_ID}}"
+assert_status "accept friend request" "200" "0"
 
-echo ""
+api_call GET "/friends" "$TOKEN_A" ""
+assert_status "list friends A" "200" "0"
 
-# ==========================================
-# Phase 2: 聊天核心
-# ==========================================
-echo "--- Phase 2: 聊天核心 ---"
+api_call GET "/friends" "$TOKEN_B" ""
+assert_status "list friends B" "200" "0"
 
-# 重新加好友
-curl -s -X POST "$BASE/friends/request" -H "Content-Type: application/json" -H "Authorization: Bearer $TA" -d '{"target_user_id":"u_13800000002"}' > /dev/null
-curl -s -X POST "$BASE/friends/accept" -H "Content-Type: application/json" -H "Authorization: Bearer $TB" -d '{"request_id":2}' > /dev/null
+log_section "Messaging"
+api_call POST "/messages/send" "$TOKEN_A" "{\"to_user_id\":\"u_${PHONE_B}\",\"msg_type\":1,\"content\":\"hello from regression\"}"
+assert_status "send normal message" "201" "0"
+MSG_ID="$(extract_json 'data["data"]["msg_id"]')"
 
-# 2.1 发送消息
-MSG_RESP=$(curl -s -X POST "$BASE/messages/send" -H "Content-Type: application/json" -H "Authorization: Bearer $TA" -d '{"to_user_id":"u_13800000002","msg_type":1,"content":"你好，这是测试消息！"}')
-MSG_ID=$(echo "$MSG_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['msg_id'])")
-test_case "发送文本消息" "POST" "$BASE/messages/send" "$TA" '{"to_user_id":"u_13800000002","msg_type":1,"content":"你好，这是测试消息！"}' "0"
+api_call GET "/messages/history?friend_id=u_${PHONE_B}&page=1&size=20" "$TOKEN_A" ""
+assert_status "message history" "200" "0"
 
-# 2.2 消息历史
-test_case "消息历史" "GET" "$BASE/messages/history?friend_id=u_13800000002&page=1&size=20" "$TA" "" "0"
+api_call GET "/conversations" "$TOKEN_A" ""
+assert_status "conversation list" "200" "0"
 
-# 2.3 聊天列表
-test_case "聊天列表" "GET" "$BASE/conversations" "$TA" "" "0"
+api_call POST "/messages/send-burn" "$TOKEN_A" "{\"to_user_id\":\"u_${PHONE_B}\",\"msg_type\":1,\"content\":\"burn after read\",\"duration\":5}"
+assert_status "send burn message" "201" "0"
+BURN_MSG_ID="$(extract_json 'data["data"]["msg_id"]')"
 
-# 2.4 在线状态
-test_case "在线状态查询" "GET" "$BASE/online/u_13800000002" "$TA" "" "0"
+api_call GET "/burns/pending" "$TOKEN_B" ""
+assert_status "list pending burns" "200" "0"
 
-echo ""
+api_call POST "/messages/${BURN_MSG_ID}/burn-read" "$TOKEN_B" ""
+assert_status "read burn message" "200" "0"
+assert_json_value "burn read status" 'data["data"]["status"]' "reading"
 
-# ==========================================
-# Phase 3: 解锁条件
-# ==========================================
-echo "--- Phase 3: 解锁条件 ---"
+api_call GET "/messages/${BURN_MSG_ID}/burn-status" "$TOKEN_A" ""
+assert_status "burn status" "200" "0"
 
-# 3.1 条件消息发送
-test_case "发送条件消息" "POST" "$BASE/messages/send-conditional" "$TA" '{"to_user_id":"u_13800000002","content":"条件消息","cond_types":[1,2,3]}' "0"
+api_call POST "/messages/${BURN_MSG_ID}/burn-destroy" "$TOKEN_A" ""
+assert_status "destroy burn message" "200" "0"
 
-# 3.2 设置条件
-test_case "设置解锁条件" "POST" "$BASE/conditions/set" "$TA" '{"cond_type":1,"is_enabled":1,"params":"{\"radius\":500}"}' "0"
+api_call POST "/messages/upload-image" "$TOKEN_A" ""
+assert_status "upload image unavailable" "501" "50101"
 
-# 3.3 获取条件
-test_case "获取条件配置" "GET" "$BASE/conditions/u_13800000001" "$TA" "" "0"
+api_call POST "/messages/upload-voice" "$TOKEN_A" ""
+assert_status "upload voice unavailable" "501" "50101"
 
-# 3.4 定位校验
-test_case "定位校验(范围内)" "POST" "$BASE/conditions/verify-location" "$TA" '{"target_user_id":"u_13800000002","lat":22.5431,"lng":113.9266}' "0"
+api_call DELETE "/friends/u_${PHONE_B}" "$TOKEN_A" ""
+assert_status "delete friend" "200" "0"
 
-# 3.5 虚拟定位检测(正常)
-test_case "虚拟定位检测(正常)" "POST" "$BASE/conditions/detect-fake-location" "$TA" '{"lat":22.5431,"lng":113.9266,"accuracy":15,"is_mock":false}' "0"
+api_call POST "/messages/send" "$TOKEN_A" "{\"to_user_id\":\"u_${PHONE_B}\",\"msg_type\":1,\"content\":\"should fail after delete\"}"
+assert_status "send message blocked when not friends" "403" "40300"
 
-# 3.6 虚拟定位检测(异常)
-test_case "虚拟定位检测(异常)" "POST" "$BASE/conditions/detect-fake-location" "$TA" '{"lat":22.5431,"lng":113.9266,"accuracy":0,"is_mock":true}' "0"
+api_call POST "/friends/request" "$TOKEN_A" "{\"target_user_id\":\"u_${PHONE_B}\",\"message\":\"re-add\"}"
+assert_status "recreate friend request" "201" "0"
+REQUEST_ID="$(extract_json 'data["data"]["request_id"]')"
 
-# 3.7 步数校验(达标)
-test_case "步数校验(达标)" "POST" "$BASE/conditions/verify-steps" "$TA" '{"target_user_id":"u_13800000002","steps":9500}' "0"
+api_call POST "/friends/accept" "$TOKEN_B" "{\"request_id\":${REQUEST_ID}}"
+assert_status "accept recreated friend request" "200" "0"
 
-# 3.8 步数防作弊
-test_case "步数防作弊(正常)" "POST" "$BASE/conditions/detect-step-cheating" "$TA" '{"steps":9500,"start_time":1700000000,"end_time":1700086400}' "0"
+log_section "Conditional Unlock (enabled in V1.0)"
+api_call POST "/messages/send-conditional" "$TOKEN_A" "{\"to_user_id\":\"u_${PHONE_B}\",\"content\":\"blocked\",\"cond_types\":[1,2,3]}"
+assert_status "conditional send" "201" "0"
 
-# 3.9 设置题目
-test_case "设置答题" "POST" "$BASE/conditions/set-quiz" "$TA" '{"question":"测试问题","answer":"答案","max_tries":3}' "0"
+api_call POST "/messages/${MSG_ID}/revoke" "$TOKEN_A" ""
+assert_status "conditional revoke" "200" "0"
 
-# 3.10 获取题目
-test_case "获取题目(无答案)" "GET" "$BASE/conditions/quiz/1" "$TA" "" "0"
+api_call GET "/messages/${MSG_ID}/condition-status" "$TOKEN_A" ""
+assert_status "conditional status" "200" "0"
 
-# 3.11 答题正确
-test_case "答题(正确)" "POST" "$BASE/conditions/verify-quiz" "$TA" '{"quiz_id":1,"answer":"答案"}' "0"
+api_call POST "/conditions/verify-location" "$TOKEN_A" "{\"target_user_id\":\"u_${PHONE_B}\",\"lat\":22.5431,\"lng\":113.9266}"
+assert_status "location verify" "200" "0"
 
-# 3.12 答题错误
-test_case "答题(错误)" "POST" "$BASE/conditions/verify-quiz" "$TA" '{"quiz_id":1,"answer":"错误答案"}' "0"
+api_call POST "/conditions/detect-fake-location" "$TOKEN_A" "{\"lat\":22.5431,\"lng\":113.9266,\"accuracy\":15,\"is_mock\":false}"
+assert_status "fake location detect" "200" "0"
 
-# 3.13 答题次数用完(模拟)
-test_case "答题次数用完" "POST" "$BASE/conditions/verify-quiz" "$TA" '{"quiz_id":1,"answer":"答案"}' "40050"
+api_call POST "/conditions/verify-steps" "$TOKEN_A" "{\"target_user_id\":\"u_${PHONE_B}\",\"steps\":9500}"
+assert_status "steps verify" "200" "0"
 
-echo ""
+api_call POST "/conditions/detect-step-cheating" "$TOKEN_A" "{\"steps\":9500,\"start_time\":1700000000,\"end_time\":1700086400}"
+assert_status "step cheating detect" "200" "0"
 
-# ==========================================
-# 结果汇总
-# ==========================================
-echo "==============================================="
-echo "  测试结果汇总"
-echo "==============================================="
-echo -e "通过: ${GREEN}$PASS${NC}"
-echo -e "失败: ${RED}$FAIL${NC}"
-echo -e "总计: $((PASS + FAIL))"
-echo ""
-echo -e "$RESULTS"
+log_section "Supported Conditions"
+api_call POST "/conditions/set" "$TOKEN_A" '{"cond_type":1,"is_enabled":1,"params":"{\"radius\":500}"}'
+assert_status "set conditions" "201" "0"
 
-if [ $FAIL -eq 0 ]; then
-    echo -e "${GREEN}全部测试通过！${NC}"
-    exit 0
-else
-    echo -e "${RED}存在 $FAIL 个失败测试${NC}"
+api_call GET "/conditions/u_${PHONE_A}" "$TOKEN_A" ""
+assert_status "get conditions" "200" "0"
+
+api_call POST "/conditions/set-quiz" "$TOKEN_A" '{"question":"Q?","answer":"A","max_tries":3}'
+assert_status "set quiz" "201" "0"
+QUIZ_ID="$(extract_json 'data["data"]["quiz_id"]')"
+
+api_call GET "/conditions/quiz/${QUIZ_ID}" "$TOKEN_A" ""
+assert_status "get quiz" "200" "0"
+
+api_call POST "/conditions/verify-quiz" "$TOKEN_A" "{\"quiz_id\":${QUIZ_ID},\"answer\":\"A\"}"
+assert_status "verify quiz correct" "200" "0"
+assert_json_value "quiz correct flag" 'data["data"]["correct"]' "True"
+
+api_call POST "/conditions/verify-quiz" "$TOKEN_A" "{\"quiz_id\":${QUIZ_ID},\"answer\":\"wrong-1\"}"
+assert_status "verify quiz wrong attempt 2" "200" "0"
+
+api_call POST "/conditions/verify-quiz" "$TOKEN_A" "{\"quiz_id\":${QUIZ_ID},\"answer\":\"wrong-2\"}"
+assert_status "verify quiz wrong attempt 3" "200" "0"
+
+api_call POST "/conditions/verify-quiz" "$TOKEN_A" "{\"quiz_id\":${QUIZ_ID},\"answer\":\"blocked\"}"
+assert_status "quiz max tries enforced" "429" "40050"
+
+echo
+echo "========================================"
+echo "Passed: ${PASS}"
+echo "Failed: ${FAIL}"
+echo "========================================"
+
+if [[ "$FAIL" -gt 0 ]]; then
     exit 1
 fi

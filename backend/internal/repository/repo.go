@@ -273,6 +273,19 @@ func (r *Repo) CreateMessage(fromID, toID string, msgType int8, content string, 
 	return msg, nil
 }
 
+func (r *Repo) GetMessageByID(messageID int64) (*model.Message, error) {
+	var message model.Message
+	if err := r.DB.Where("id = ?", messageID).First(&message).Error; err != nil {
+		return nil, err
+	}
+	return &message, nil
+}
+
+func (r *Repo) ClearMessageContent(messageID int64) error {
+	return r.DB.Model(&model.Message{}).Where("id = ?", messageID).
+		Updates(map[string]interface{}{"content": "", "is_read": 1}).Error
+}
+
 // GetMessageHistory 消息历史
 func (r *Repo) GetMessageHistory(userID, friendID string, page, size int) ([]model.Message, int64, error) {
 	var messages []model.Message
@@ -451,6 +464,28 @@ func (r *Repo) CompleteBurn(msgID int64) error {
 		Updates(map[string]interface{}{
 			"status": 2,
 		}).Error
+}
+
+func (r *Repo) DestroyExpiredBurns(now time.Time) error {
+	tx := r.DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if err := tx.Exec(`
+		UPDATE messages m
+		JOIN burn_records b ON b.message_id = m.id
+		SET m.content = '', m.is_read = 1
+		WHERE b.status = 1 AND b.burn_at <= ?`, now).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Model(&model.BurnRecord{}).
+		Where("status = ? AND burn_at <= ?", 1, now).
+		Update("status", 2).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
 }
 
 // GetPendingBurns 获取待销毁消息
