@@ -44,15 +44,20 @@ jobs:
           fi
           echo "Typechecking:"
           echo "$FILES" | tr ' ' '\n'
+          # 关键：Actions 给 run 加了 `set -e`，失败的 pipeline 会让本步立刻退出，
+          # 导致后面的注解/摘要全都写不出去。这里临时关掉 -e，手动保存退出码。
+          set +e
           # shellcheck disable=SC2086
           xcrun swiftc -sdk "$SDK" -target "$TARGET" -typecheck $FILES 2>&1 | tee typecheck.log
           STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "swiftc exit code = $STATUS"
 
           # 把每一行 error 作为 GitHub 注解输出 —— run 页面的 Annotations 区无需登录即可看到
           n=0
           while IFS= read -r line; do
             n=$((n + 1))
-            [ "$n" -gt 10 ] && break
+            if [ "$n" -gt 10 ]; then break; fi
             echo "::error::$line"
           done < <(grep -E ': error:' typecheck.log || true)
 
@@ -60,7 +65,7 @@ jobs:
           n=0
           while IFS= read -r line; do
             n=$((n + 1))
-            [ "$n" -gt 10 ] && break
+            if [ "$n" -gt 10 ]; then break; fi
             echo "::notice::$line"
           done < <(grep -E ': (note|warning):' typecheck.log || true)
 
