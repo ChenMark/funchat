@@ -1,0 +1,75 @@
+name: iOS build check
+
+# 说明：
+# Windows / Linux 无法编译 iOS（Xcode 仅 macOS），因此用 macos runner 验证。
+# 本 workflow 分两段：
+#   1) typecheck —— 只要仓库里有 Swift 源码就能跑，现在就能给出「能不能编译」的结论
+#   2) xcodebuild —— 需要 .xcodeproj 已提交才会执行（示例工程尚未建，自动跳过）
+#
+# 注意：typecheck 只做类型/符号检查，不检查 Info.plist 与 Assets 颜色集，
+#      那两项需在真机/模拟器运行时验证。
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    name: Swift typecheck (iOS Simulator SDK)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-path
+
+      - name: Typecheck all Swift sources
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          TARGET=arm64-apple-ios17.0-simulator
+          FILES=$(find ios -name '*.swift' | sort | tr '\n' ' ')
+          if [ -z "$FILES" ]; then
+            echo "::warning::ios/ 下没有找到 Swift 源文件"
+            exit 0
+          fi
+          echo "Typechecking:"
+          echo "$FILES" | tr ' ' '\n'
+          # shellcheck disable=SC2086
+          xcrun swiftc -sdk "$SDK" -target "$TARGET" -typecheck $FILES
+
+  xcodebuild:
+    name: Xcode build (needs committed .xcodeproj)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Locate Xcode project
+        id: locate
+        run: |
+          PROJ=$(find ios -maxdepth 4 -name '*.xcodeproj' | head -n 1)
+          if [ -z "$PROJ" ]; then
+            echo "::notice::仓库中还没有 .xcodeproj，跳过完整构建"
+          fi
+          echo "proj=${PROJ}" >> "$GITHUB_OUTPUT"
+
+      - name: Build for iOS Simulator
+        if: steps.locate.outputs.proj != ''
+        run: |
+          xcodebuild \
+            -project "${{ steps.locate.outputs.proj }}" \
+            -scheme FunChat \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
