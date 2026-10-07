@@ -34,7 +34,7 @@ jobs:
 
       - name: Typecheck all Swift sources
         run: |
-          set -euo pipefail
+          set -uo pipefail
           SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
           TARGET=arm64-apple-ios17.0-simulator
           FILES=$(find ios -name '*.swift' | sort | tr '\n' ' ')
@@ -45,7 +45,28 @@ jobs:
           echo "Typechecking:"
           echo "$FILES" | tr ' ' '\n'
           # shellcheck disable=SC2086
-          xcrun swiftc -sdk "$SDK" -target "$TARGET" -typecheck $FILES
+          xcrun swiftc -sdk "$SDK" -target "$TARGET" -typecheck $FILES 2>&1 | tee typecheck.log
+          STATUS=${PIPESTATUS[0]}
+          # 把错误摘要写进 job summary，页面上直接可读，不用翻原始日志
+          {
+            echo "## Swift typecheck 结果"
+            echo
+            echo "- 退出码: \`$STATUS\`"
+            echo "- 错误数: \`$(grep -c 'error:' typecheck.log || true)\`"
+            echo
+            echo '```'
+            grep -E 'error:' typecheck.log || echo "(no error lines)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$STATUS"
+
+      - name: Upload typecheck log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-log
+          path: typecheck.log
+          if-no-files-found: ignore
 
   xcodebuild:
     name: Xcode build (needs committed .xcodeproj)
