@@ -62,7 +62,8 @@ class WebSocketManager: ObservableObject {
             switch result {
             case .success(let message):
                 switch message {
-                case .text(let text):
+                // URLSessionWebSocketTask.Message 的 case 是 .string / .data，没有 .text
+                case .string(let text):
                     self?.handleMessage(text)
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {

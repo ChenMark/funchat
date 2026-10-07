@@ -181,7 +181,7 @@ class APIClient {
 
         let (data, response) = try await session.data(for: req)
 
-        guard let httpResponse = response as? HTTPURLResponse else {
+        guard response is HTTPURLResponse else {
             throw APIError(code: -1, message: "网络异常")
         }
 

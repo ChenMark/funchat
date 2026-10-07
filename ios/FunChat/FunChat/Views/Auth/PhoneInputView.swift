@@ -356,7 +356,7 @@ struct CodeInputView: View {
     private func resendCode() {
         let digits = phone.filter { $0.isNumber }
         Task {
-            try? await APIClient.shared.sendCode(phone: digits)
+            _ = try? await APIClient.shared.sendCode(phone: digits)
             await MainActor.run { startCountdown() }
         }
     }
