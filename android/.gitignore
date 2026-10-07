@@ -1,0 +1,10 @@
+# Gradle / Android Studio 生成物
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+.cxx/
+.externalNativeBuild/
+captures/
