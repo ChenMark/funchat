@@ -244,13 +244,14 @@ extension APIClient {
     }
 
     /// 刷新 Token
-    func refreshToken() async throws -> AuthResult {
+    /// 注意：与上面的 `refreshToken` 属性同名会让调用点产生歧义，故方法名加 Auth 前缀
+    func refreshAuthToken() async throws -> AuthResult {
         try await post("/auth/refresh", body: ["refresh_token": refreshToken ?? ""])
     }
 
     /// 登出
     func logout() async {
-        try? await post("/auth/logout" as String, body: nil) as APIResponse<EmptyData>
+        let _: APIResponse<EmptyData>? = try? await post("/auth/logout", body: nil)
         accessToken = nil
         refreshToken = nil
     }

@@ -2,6 +2,7 @@
 // 基于 DES-002 设计稿 P3
 
 import SwiftUI
+import UIKit
 
 struct PhoneInputView: View {
     @State private var phone = ""

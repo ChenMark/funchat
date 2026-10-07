@@ -3,6 +3,7 @@
 // 基于 DES-003 设计稿 P2
 
 import SwiftUI
+import UIKit
 
 // MARK: - WebSocket 客户端
 
@@ -23,7 +24,7 @@ class WebSocketManager: ObservableObject {
         let isBurn: Bool
         let burnDuration: Int
         let timestamp: Int64
-        var isMe: Bool { fromUserID == currentUserID }
+        var isMe: Bool { fromUserID == Self.currentUserID }
         var sendStatus: SendStatus = .sent  // BUG-003 修复: 发送状态
 
         enum SendStatus {
@@ -264,11 +265,11 @@ struct ChatRoomView: View {
         Task {
             struct SendResult: Codable { let msg_id: Int64; let timestamp: Int64 }
             do {
-                _ = try await APIClient.shared.post("/messages/send", body: [
+                let _: SendResult = try await APIClient.shared.post("/messages/send", body: [
                     "to_user_id": friendID,
                     "msg_type": 1,
                     "content": content
-                ]) as SendResult
+                ])
                 // 发送成功 → 更新状态
                 await MainActor.run {
                     if let idx = wsManager.messages.firstIndex(where: { $0.id == localMsg.id }) {

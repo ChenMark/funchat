@@ -354,12 +354,12 @@ struct QuizSetupView: View {
 
                 Button(action: {
                     Task {
-                        struct Result: Codable { let quiz_id: Int64 }
-                        _ = try? await APIClient.shared.post("/conditions/set-quiz", body: [
+                        struct QuizResult: Codable { let quiz_id: Int64 }
+                        let _: QuizResult? = try? await APIClient.shared.post("/conditions/set-quiz", body: [
                             "question": question,
                             "answer": answer,
                             "max_tries": maxTries
-                        ]) as Result
+                        ])
                         dismiss()
                     }
                 }) {
