@@ -1,0 +1,111 @@
+name: Android build check
+
+# 说明：
+# Windows / macOS 都能本地构建 Android，但为了让「能不能编译」有客观结论（不依赖个人本机环境），
+# 这里用 ubuntu runner + Gradle wrapper 跑一次完整 assembleDebug：
+#   - compileDebugKotlin 只查 Kotlin 语法/符号
+#   - assembleDebug 额外覆盖资源链接、Manifest 校验、DEX —— 例如引用了不存在的 @mipmap 会在这里挂掉
+# 构建产物 APK 会作为 artifact 上传，可直接在模拟器/真机安装验证。
+
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'gradle/**'
+      - '.github/workflows/android-build.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: assembleDebug (JDK 17 / Gradle 8.7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Show toolchain
+        working-directory: android
+        run: |
+          java -version
+          ./gradlew --version | head -n 12
+
+      - name: assembleDebug
+        working-directory: android
+        run: |
+          # 关键：Actions 给 run 注入了 `set -e`，失败的 pipeline（叠加 pipefail）会让本步立刻退出，
+          # 后面的注解/摘要就一句都写不出去。这里临时关掉 -e，手动保存退出码。
+          set +e
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "gradle exit code = $STATUS"
+
+          # Kotlin 编译错误以 "e: " 开头、警告以 "w: " 开头，转成 GitHub 注解（run 页面无需登录即可读）
+          n=0
+          while IFS= read -r line; do
+            n=$((n + 1))
+            if [ "$n" -gt 10 ]; then break; fi
+            echo "::error::$line"
+          done < <(grep -E '^e: ' build.log || true)
+
+          n=0
+          while IFS= read -r line; do
+            n=$((n + 1))
+            if [ "$n" -gt 10 ]; then break; fi
+            echo "::notice::$line"
+          done < <(grep -E '^w: ' build.log || true)
+
+          # 兜底：非 Kotlin 语法类失败（SDK 缺失、依赖解析、资源链接等）把 Gradle 的失败摘要注解出来
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::Gradle assembleDebug 失败，退出码 $STATUS"
+            awk '/\* What went wrong:/,0' build.log | head -n 12 | while IFS= read -r l; do
+              echo "::notice::$l"
+            done
+            if ! grep -qE '^e: ' build.log; then
+              tail -n 12 build.log | while IFS= read -r l; do echo "::error::$l"; done
+            fi
+          fi
+
+          {
+            echo "## Android assembleDebug 结果"
+            echo
+            echo "- 退出码: \`$STATUS\`"
+            echo "- Kotlin 错误数: \`$(grep -cE '^e: ' build.log || true)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$STATUS"
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-log
+          path: android/build.log
+          if-no-files-found: ignore
