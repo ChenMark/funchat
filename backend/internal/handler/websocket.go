@@ -176,6 +176,11 @@ func (c *Client) readPump() {
 			c.Send <- data
 
 		case "chat":
+			// Message persistence and authorization live on POST /messages/send.
+			// Rejecting this legacy path prevents clients from receiving an ACK for
+			// a message that was never durably stored.
+			c.Send <- []byte(`{"type":"error","code":"use_rest_message_api"}`)
+			continue
 			// 聊天消息：存储 + 推送给接收方 + 回 ACK 给发送方
 			msg.From = c.UserID
 			msg.Timestamp = time.Now().Unix()

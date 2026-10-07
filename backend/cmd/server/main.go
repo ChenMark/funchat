@@ -57,7 +57,7 @@ func main() {
 	// 全局中间件
 	r.Use(gin.Recovery())
 	r.Use(middleware.Logger())
-	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.CORSMiddleware(cfg.Server.AllowedOrigins))
 
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {
@@ -80,17 +80,18 @@ func main() {
 	hub := handler.NewHub()
 	go hub.Run()
 	wsHandler := handler.NewWSHandler(hub, jwtManager)
+	secureWSHandler := handler.NewSecureWSHandler(hub, jwtManager, cfg.Server.AllowedOrigins)
 	msgHandler := handler.NewMessageHandler(hub, repo)
 	burnHandler := handler.NewBurnHandler(repo)
-	burnHandler.StartBurnCleanup(1 * time.Hour)
+	burnHandler.StartBurnCleanup(time.Second)
 
 	// --- WebSocket 路由 (Token 通过 query 传递) ---
-	r.GET("/ws", wsHandler.HandleWS)
+	r.GET("/ws", secureWSHandler.HandleWS)
 
 	// --- 公开路由 (无需鉴权) ---
 	auth := v1.Group("/auth")
 	{
-		auth.POST("/send-code", authHandler.SendCode)
+		auth.POST("/send-code", middleware.MemoryRateLimiter(5, time.Minute), authHandler.SendCode)
 		auth.POST("/verify-code", authHandler.VerifyCode)
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login", authHandler.Login)
@@ -164,8 +165,11 @@ func main() {
 	// 启动服务
 	addr := fmt.Sprintf(":%s", cfg.Server.Port)
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:         addr,
+		Handler:      r,
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// 优雅退出
