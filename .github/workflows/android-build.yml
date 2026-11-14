@@ -33,9 +33,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Cache Gradle
         uses: gradle/actions/setup-gradle@v4
 
@@ -46,7 +43,8 @@ jobs:
         working-directory: android
         run: |
           java -version
-          ./gradlew --version | head -n 12
+          # 不接 `| head`：pipefail 下 head 提前退出会 SIGPIPE 拖挂本步（输出本身就只有十几行）
+          ./gradlew --version
 
       - name: assembleDebug
         working-directory: android
