@@ -61,14 +61,14 @@ jobs:
           n=0
           while IFS= read -r line; do
             n=$((n + 1))
-            if [ "$n" -gt 10 ]; then break; fi
+            if [ "$n" -gt 20 ]; then break; fi
             echo "::error::$line"
           done < <(grep -E '^e: ' build.log || true)
 
           n=0
           while IFS= read -r line; do
             n=$((n + 1))
-            if [ "$n" -gt 10 ]; then break; fi
+            if [ "$n" -gt 20 ]; then break; fi
             echo "::notice::$line"
           done < <(grep -E '^w: ' build.log || true)
 

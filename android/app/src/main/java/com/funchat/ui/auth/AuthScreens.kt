@@ -20,7 +20,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.funchat.data.api.SendCodeResult
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 // MARK: - 颜色定义

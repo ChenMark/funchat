@@ -23,11 +23,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.funchat.data.api.APIClient
 import com.funchat.data.api.FriendItem
 import com.funchat.data.api.FriendRequestItem
 import com.funchat.data.api.SearchUser
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 // MARK: - 好友列表页

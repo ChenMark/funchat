@@ -26,6 +26,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.funchat.data.api.APIClient
 import com.funchat.ui.auth.PrimaryColor
@@ -37,6 +38,7 @@ import com.funchat.ui.auth.Neutral600
 import com.funchat.ui.auth.Neutral800
 import com.funchat.ui.auth.Neutral900
 import com.funchat.ui.auth.White
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.*
 import okhttp3.WebSocket
@@ -206,7 +208,7 @@ fun ChatInputBar(
     text: String,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
-    onMore: () -> Void
+    onMore: () -> Unit
 ) {
     Row(
         modifier = Modifier

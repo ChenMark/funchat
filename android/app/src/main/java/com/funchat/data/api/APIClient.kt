@@ -208,28 +208,38 @@ object APIClient {
             query = mapOf("keyword" to keyword),
             responseType = SearchResult::class.java)
 
+    // Map<String, String>::class.java 这类带泛型的 class literal 在 Kotlin 中不合法，
+    // 统一走本辅助：Gson 反序列化出的就是 LinkedTreeMap<String, String>，运行期安全
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun requestMap(
+        method: String,
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        body: Map<String, Any>? = null
+    ): Map<String, String> =
+        request(method, path, query = query, body = body,
+            responseType = Map::class.java as Class<Map<String, String>>)
+
     suspend fun sendFriendRequest(targetUserId: String, message: String? = null): Map<String, String> {
         val body = mutableMapOf("target_user_id" to targetUserId)
         message?.let { body["message"] = it }
-        return request("POST", "/friends/request", body = body, responseType = Map<String, String>::class.java)
+        return requestMap("POST", "/friends/request", body = body)
     }
 
     suspend fun getFriendRequests(): List<FriendRequestItem> =
         request("GET", "/friends/requests", responseType = RequestsWrapper::class.java).requests
 
     suspend fun acceptFriendRequest(requestId: Long): Map<String, String> =
-        request("POST", "/friends/accept",
-            body = mapOf("request_id" to requestId),
-            responseType = Map<String, String>::class.java)
+        requestMap("POST", "/friends/accept",
+            body = mapOf("request_id" to requestId))
 
     suspend fun rejectFriendRequest(requestId: Long): Map<String, String> =
-        request("POST", "/friends/reject",
-            body = mapOf("request_id" to requestId),
-            responseType = Map<String, String>::class.java)
+        requestMap("POST", "/friends/reject",
+            body = mapOf("request_id" to requestId))
 
     suspend fun getFriends(): List<FriendItem> =
         request("GET", "/friends", responseType = FriendsWrapper::class.java).friends
 
     suspend fun deleteFriend(friendId: String): Map<String, String> =
-        request("DELETE", "/friends/$friendId", responseType = Map<String, String>::class.java)
+        requestMap("DELETE", "/friends/$friendId")
 }
